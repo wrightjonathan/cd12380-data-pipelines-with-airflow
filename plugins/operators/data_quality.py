@@ -1,22 +1,43 @@
-from airflow.hooks.postgres_hook import PostgresHook
 from airflow.models import BaseOperator
-from airflow.utils.decorators import apply_defaults
+from airflow.providers.amazon.aws.hooks.redshift_sql import RedshiftSQLHook
+
 
 class DataQualityOperator(BaseOperator):
 
-    ui_color = '#89DA59'
-
-    @apply_defaults
-    def __init__(self,
-                 # Define your operators params (with defaults) here
-                 # Example:
-                 # conn_id = your-connection-name
-                 *args, **kwargs):
+    def __init__(
+        self, redshift_conn_id: str = "redshift", sql: str = "", *args, **kwargs
+    ):
 
         super(DataQualityOperator, self).__init__(*args, **kwargs)
-        # Map params here
-        # Example:
-        # self.conn_id = conn_id
+        self.sql = sql
+        self.redshift_conn_id = redshift_conn_id
 
     def execute(self, context):
-        self.log.info('DataQualityOperator not implemented yet')
+        self.log.info("Starting data quality check...")
+
+        redshift_hook = RedshiftSQLHook(redshift_conn_id=self.redshift_conn_id)
+        conn = redshift_hook.get_conn()
+        cursor = conn.cursor()
+
+        # Execute the SQL
+        cursor.execute(self.sql)
+        column_names = [desc[0] for desc in cursor.description]
+        records = cursor.fetchall()
+
+        self.log.info(f"Column names: {column_names}")
+        self.log.info(f"Records: {records}")
+
+        # Example logic to check for NULL values
+        for i, column_name in enumerate(column_names):
+            null_count = records[0][i]  # Assuming only one row is returned
+            if null_count > 0:
+                raise ValueError(
+                    f"Data quality check failed: Column '{column_name}' has {null_count} NULL values."
+                )
+
+        self.log.info("Data quality check passed with 0 NULL values found.")
+
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
